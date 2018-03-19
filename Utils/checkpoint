@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/sharedfolder/emotions/prova"
+all_model_checkpoint_paths: "/home/sharedfolder/emotions/prova"
