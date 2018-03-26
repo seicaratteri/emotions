@@ -4,13 +4,15 @@ import cv2
 import tensorflow as tf
 import tflearn
 import numpy as np
-from tflearn.layers.core import input_data, dropout, fully_connected, flatten
+from tflearn.layers.core import input_data, dropout, fully_connected, flatten, activation
 from tflearn.layers.conv import conv_2d, max_pool_2d
-from tflearn.layers.normalization import local_response_normalization
+from tflearn.layers.normalization import local_response_normalization, batch_normalization
 from tflearn.layers.estimator import regression
 from tflearn.data_augmentation import ImageAugmentation
 from tflearn.data_preprocessing import ImagePreprocessing
 from tflearn.data_utils import shuffle
+
+import tflearn
 
 from PIL import Image
 from PIL import ImageFont
@@ -19,6 +21,7 @@ from PIL import ImageDraw
 tf.reset_default_graph()
 
 class Network:
+	'''
 	def Define():		
 		img_aug = ImageAugmentation()
 		img_aug.add_random_flip_leftright()
@@ -41,20 +44,59 @@ class Network:
 		network = fully_connected(network, 7, activation='softmax')
 				
 		return network
+	'''
+
+	def Define():		
+		img_aug = ImageAugmentation()
+		img_aug.add_random_flip_leftright()
+		img_aug.add_random_crop((48, 48),6)
+		img_aug.add_random_rotation(max_angle=25.)
+
+		img_prep = ImagePreprocessing()
+		img_prep.add_featurewise_zero_center()
+		img_prep.add_featurewise_stdnorm()
+
+		n = 5
+
+		network = input_data(shape=[None, 48, 48, 1], data_augmentation=img_aug, data_preprocessing=img_prep) #48 x 48 grayscale
+		network = tflearn.conv_2d(network, 16, 3, regularizer='L2', weight_decay=0.0001)
+		network = tflearn.residual_block(network, n, 16)
+		network = tflearn.residual_block(network, 1, 32, downsample=True)
+		network = tflearn.residual_block(network, n-1, 32)
+		network = tflearn.residual_block(network, 1, 64, downsample=True)
+		network = tflearn.residual_block(network, n-1, 64)
+		network = tflearn.batch_normalization(network)
+		network = tflearn.activation(network, 'relu')
+		network = tflearn.global_avg_pool(network)
+		# Regression
+		network = tflearn.fully_connected(network, 7, activation='softmax')
+		
+
+		return network
 
 	def Train(h5_dataset,model_name,run_name,pre_load = False,tb_dir = './tfboard/'):
 		h5f = h5py.File(h5_dataset, 'r')
 		X = h5f['X'] #images
 		Y = h5f['Y'] #labels
 		X = np.reshape(X, (-1, 48, 48, 1))
+		
+		'''
+		validation = h5py.File("./Dataset/Split/validation.h5", 'r')
+		X_v = validation['X'] #images
+		Y_v = validation['Y'] #labels
+		X_v = np.reshape(X_v, (-1, 48, 48, 1))
+		Y_v = np.reshape(Y_v, (-1, 7))
+		'''
 
-		X, Y = shuffle(X, Y)
+		#X, Y = shuffle(X, Y)
 
 		network = Network.Define()
-		network = regression(network, optimizer='momentum',
-				     loss='categorical_crossentropy')  
-
+		mom = tflearn.Momentum(0.1, lr_decay=0.1, decay_step=32000, staircase=True)
+		network = tflearn.regression(network, optimizer=mom,
+				         loss='categorical_crossentropy')
+		# Training
 		model = tflearn.DNN(network,
+				    clip_gradients=0.,
 				    max_checkpoints=1,
 				    checkpoint_path="./Utils/", 
 				    tensorboard_dir=tb_dir, 
@@ -63,7 +105,7 @@ class Network:
 		if (pre_load == True):
 			model.load(model_name)
 
-		model.fit(X, Y, n_epoch=140, validation_set=0.10, shuffle=True,
+		model.fit(X, Y, n_epoch=50, validation_set=0.1, shuffle=True,
 			  show_metric=True, batch_size=128,
 			  snapshot_epoch=True, run_id=run_name)
 
@@ -108,10 +150,13 @@ class Network:
 
 		#o = open(output,"a")
 		avg = 0
+		avg2 = 0
 		labels = ["Angry","Disgust","Fear","Happy","Sad","Surprise","Neutral"]
 		
 		for i in range(0,7):
 			c = 0
+			c2 = 0
+			s = 0
 			l = os.listdir(test_dir+"/"+str(i))
 			for f in l:
 				img = cv2.imread(test_dir+"/"+str(i)+'/'+f)
@@ -124,13 +169,22 @@ class Network:
 				first = sorted_dic[0][0]
 				if (first == i):
 					c+=1
+				elif (sorted_dic[1][0] == i):
+					c2 += 1
+					s += 1
+				else:
+					s += 1
 			
-			percent = c * 100 / len(l)
+			percent = round(c * 100 / len(l),5)
+			percent2 = round(c2 * 100 / s,5)
 			avg += percent
-			print(str(i) +  " (" + labels[i] + "):\t" + str(c) + " su " + str(len(l)) + " ( " + str(percent) + ")")
+			avg2 += percent2
+			print(str(i) +  " (" + labels[i] + "):\t" + str(c) + " su " + str(len(l)) + " ( " + str(percent) + ")\t| Second emotion: " + str(c2) + " su " + str(s) + " (" + str(percent2) + ")")
 		
 		avg /= 7
-		print("Media: " + str(avg))
+		avg2 /= 7
+		print("Average: " + str(avg))
+		print("Average second emotion: " + str(avg2))	
 
 	def _FormatImage(image,cascade_classifier):
 		if len(image.shape) > 2 and image.shape[2] == 3:
@@ -138,6 +192,7 @@ class Network:
 		else:
 			image = cv2.imdecode(image, cv2.CV_LOAD_IMAGE_GRAYSCALE)
 
+		
 		faces = cascade_classifier.detectMultiScale(image,scaleFactor = 1.3,minNeighbors = 5)
 
 		# None is we don't found any face - try to give back the whole picture anyway, but probably won't work welll
@@ -159,7 +214,8 @@ class Network:
 		
 		return image
 
-#Network.Train("./Dataset/dataset_new.h5","./Model/model_new.tfl","new2",False,"./TFBoard/")
+
+path = "./Models/China/res.tfl"
+Network.Train("./Dataset/dataset_new_john.h5",path,"res",True,"./TFBoard/")
 #Network.Test("./Tests/TestResults/augmented_aa.txt","./Model/model.tfl","./Tests/TestImages/","./Utils/h.xml")
-Network.TestNew("./Tests/TestResults/NewTest/augmented_normalized.txt","./Model/model_new.tfl","./Tests/NewTest/","./Utils/h.xml")
-#Network.Evaluate("./Dataset/dataset_default.h5","./Model/model.tfl")
+#Network.TestNew("./Tests/TestResults/NewTest/augmented_normalized.txt",path,"./Tests/NewTest/","./Utils/h.xml")
