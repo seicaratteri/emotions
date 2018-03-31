@@ -28,5 +28,5 @@ class SideFunctions:
 	def BuildH5FromDirectory(directory,size):
 		build_hdf5_image_dataset(directory, image_shape=size, mode='folder', grayscale= True, categorical_labels=True, normalize=True)
 
-#SideFunctions.ExtractFromCSV("./Dataset/Split/validation.csv","./Dataset/Split/Validation/",(48,48))
-SideFunctions.BuildH5FromDirectory("./Dataset/John/classified/",(48,48))
+#SideFunctions.ExtractFromCSV("./Dataset/Validation/validation.csv","./Dataset/Validation/",(48,48))
+SideFunctions.BuildH5FromDirectory("./Dataset/Training/",(48,48))

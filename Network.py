@@ -50,7 +50,7 @@ class Network:
 		img_aug = ImageAugmentation()
 		img_aug.add_random_flip_leftright()
 		img_aug.add_random_crop((48, 48),6)
-		img_aug.add_random_rotation(max_angle=25.)
+		img_aug.add_random_rotation(max_angle=25.)		
 
 		img_prep = ImagePreprocessing()
 		img_prep.add_featurewise_zero_center()
@@ -80,18 +80,18 @@ class Network:
 		Y = h5f['Y'] #labels
 		X = np.reshape(X, (-1, 48, 48, 1))
 		
-		'''
-		validation = h5py.File("./Dataset/Split/validation.h5", 'r')
+		
+		validation = h5py.File("./Dataset/Validation/validation.h5", 'r')
 		X_v = validation['X'] #images
 		Y_v = validation['Y'] #labels
 		X_v = np.reshape(X_v, (-1, 48, 48, 1))
 		Y_v = np.reshape(Y_v, (-1, 7))
-		'''
+		
 
 		#X, Y = shuffle(X, Y)
 
 		network = Network.Define()
-		mom = tflearn.Momentum(0.1, lr_decay=0.1, decay_step=32000, staircase=True)
+		mom = tflearn.Momentum(0.1, lr_decay=0.1, decay_step=8000, staircase=True)
 		network = tflearn.regression(network, optimizer=mom,
 				         loss='categorical_crossentropy')
 		# Training
@@ -105,7 +105,7 @@ class Network:
 		if (pre_load == True):
 			model.load(model_name)
 
-		model.fit(X, Y, n_epoch=50, validation_set=0.1, shuffle=True,
+		model.fit(X, Y, n_epoch=100, validation_set=(X_v,Y_v), shuffle=True,
 			  show_metric=True, batch_size=128,
 			  snapshot_epoch=True, run_id=run_name)
 
@@ -141,7 +141,7 @@ class Network:
 		o.write("\n-- Total right: " + str(c) + " over " + str(len(l)))
 		o.close()
 
-	def TestNew(output,model_name,test_dir,cascade_file):
+	def TestNew(output,model_name,test_dir,cascade_file,verbose=True):
 		cascade_classifier = cv2.CascadeClassifier(cascade_file)
 
 		network = Network.Define()
@@ -152,6 +152,7 @@ class Network:
 		avg = 0
 		avg2 = 0
 		labels = ["Angry","Disgust","Fear","Happy","Sad","Surprise","Neutral"]
+		ret = []
 		
 		for i in range(0,7):
 			c = 0
@@ -179,12 +180,39 @@ class Network:
 			percent2 = round(c2 * 100 / s,5)
 			avg += percent
 			avg2 += percent2
-			print(str(i) +  " (" + labels[i] + "):\t" + str(c) + " su " + str(len(l)) + " ( " + str(percent) + ")\t| Second emotion: " + str(c2) + " su " + str(s) + " (" + str(percent2) + ")")
+			if (verbose):
+				print(str(i) +  " (" + labels[i] + "):\t" + str(c) + " su " + str(len(l)) + " ( " + str(percent) + ")\t| Second emotion: " + str(c2) + " su " + str(s) + " (" + str(percent2) + ")")
+			ret.append(percent)
 		
 		avg /= 7
 		avg2 /= 7
+		if (verbose):
+			print("Average: " + str(avg))
+			print("Average second emotion: " + str(avg2))	
+		return ret
+
+	def Ensemble(models):
+		l = []
+		for m in models:
+			tf.reset_default_graph()
+			l.append(Network.TestNew("bla",m,"./Tests/FERTest/","./Utils/h.xml",True))
+		
+		labels = ["Angry","Disgust","Fear","Happy","Sad","Surprise","Neutral"]
+		avg = 0		
+
+		for i in range(0,7):
+			local_max = 0
+			for j in range(0,len(l)):		
+				if (l[j][i] >= local_max):
+					local_max = l[j][i]
+				
+			print(str(i) +  " (" + labels[i] + "):\t" + str(local_max))		
+			avg += local_max
+		
+		avg /= 7		
 		print("Average: " + str(avg))
-		print("Average second emotion: " + str(avg2))	
+			
+		
 
 	def _FormatImage(image,cascade_classifier):
 		if len(image.shape) > 2 and image.shape[2] == 3:
@@ -215,7 +243,10 @@ class Network:
 		return image
 
 
-path = "./Models/China/res.tfl"
-Network.Train("./Dataset/dataset_new_john.h5",path,"res",True,"./TFBoard/")
+path = "./Models/China_5_3/res_5_3.tfl"
+#Network.Train("./Dataset/Training/training.h5",path,"res_5_3",False,"./TFBoard/")
 #Network.Test("./Tests/TestResults/augmented_aa.txt","./Model/model.tfl","./Tests/TestImages/","./Utils/h.xml")
-#Network.TestNew("./Tests/TestResults/NewTest/augmented_normalized.txt",path,"./Tests/NewTest/","./Utils/h.xml")
+#Network.TestNew("./Tests/TestResults/NewTest/augmented_normalized.txt",path,"./Tests/FERTest/","./Utils/h.xml")
+
+models = ["./Models/China_5/res_5.tfl","./Models/China_5_2/res_5_2.tfl","./Models/China_5_3/res_5_3.tfl"]
+Network.Ensemble(models)

@@ -1,2 +1,2 @@
-model_checkpoint_path: "/home/sharedfolder/emotions_new/Utils-12700"
-all_model_checkpoint_paths: "/home/sharedfolder/emotions_new/Utils-12700"
+model_checkpoint_path: "/home/sharedfolder/emotions/Utils-22500"
+all_model_checkpoint_paths: "/home/sharedfolder/emotions/Utils-22500"
